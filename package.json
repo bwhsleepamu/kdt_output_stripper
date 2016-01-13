@@ -1,0 +1,25 @@
+{
+  "name": "kdt_output_stripper",
+  "version": "0.0.0",
+  "description": "",
+  "main": "gulpfile.js",
+  "dependencies": {},
+  "devDependencies": {
+    "gulp": "^3.9.0",
+    "gulp-bower": "0.0.11",
+    "gulp-sass": "^2.1.1"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pmanko/kdt_output_stripper.git"
+  },
+  "author": "Piotr Mankowski",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pmanko/kdt_output_stripper/issues"
+  },
+  "homepage": "https://github.com/pmanko/kdt_output_stripper#readme"
+}
