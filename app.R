@@ -5,13 +5,22 @@ library(shinyFiles)
 library(gdata)
 library(openxlsx)
 library(data.table)
+library(stringr)
+library(rsconnect)
+library(shinyapps)
+source("labtime.R")
 
 # By default, the file size limit is 5MB. It can be changed by
 # setting this option. Here we'll raise limit to 9MB.
 options(shiny.maxRequestSize = 9*1024^2)
 
 
-loadFile <- function(input_path, skip, header, sheet, seperator, quote) {
+readPasciInfo <- function(p_fp) {
+  fr <- scan(p_fp, what=character(), skip=1, nlines=3, sep='|');
+  list(vpd_file_name=fr[2], date=fr[7], time=substr(fr[12],1,8))
+}
+
+loadFile <- function(input_path, skip, header, sheet, seperator=',', quote='"') {
   inFile <- input_path
   print(input_path)
   data_file <- NULL
@@ -124,7 +133,8 @@ ui <- dashboardPage(
           box(title="Preview", width=12,
             actionButton("generate_ps2", "Generate PS2", class='btn-block'),
             downloadButton("downloadPS2", "Download PS2", class='btn-block'),
-            br(),
+            downloadButton("downloadPS2_Full", "Download Full Dataset", class='btn-block'),
+            hr(),
             dataTableOutput("ps2_preview")
           )
         )
@@ -156,35 +166,43 @@ server <- function(input, output, session) {
     ps1_list <- character()
     
     for(file_pattern in master_sheet()[Subject==input$subject_code]$VPD.Filename) {
-      ps1_list <- c(ps1_list, grep(file_pattern, all_files, value=TRUE))
+      ps1_list <- c(ps1_list, grep(file_pattern, all_files, value=TRUE, ignore.case = TRUE))
     }
     
     data.table(file_path = ps1_list)
   })
   
   ps2_sheet <- eventReactive(input$generate_ps2, {
-    my_ms <- master_sheet()[Subject==input$subject_code]
-    #my_ps1[,pk:=.I]
-    print(ps1_sheet()$file_path)  
-    file_paths <- ps1_sheet()$file_path
+  
     
-    # for(pasci_path in ps1_sheet()$file_path[1:5]) {
-    #   print(as.data.table(read.delim(file_path, sep='|', header=FALSE))[2,2,with=FALSE])
-    # 
-    # }
-    # 
-    # my_vpd_paths <- my_ps1[1:5,
-    #    {print(file_path); as.data.table(read.delim(file_path, sep='|', header=FALSE))[2,2,with=FALSE]}
-    # , by='pk']
-    # 
-    # print(my_vpd_paths)
-        
-    # data.table(
-    #   vpd_file_name=my_vpd_paths$file_path
-    #   
-    # )
+    my_ms <- copy(master_sheet()[Subject=="3227GX"])
+    pasci_file_info <- ps1_sheet()[,readPasciInfo(file_path),by='file_path']
     
-    data.table(main=c("1","2"))
+    ps2 <- data.table(subject_code=my_ms$Subject, vpd_pattern=my_ms$VPD.Filename, kdt_start_epoch=as.numeric(as.character(my_ms$KDT.Beginning.Epoch)), kdt_start_date=my_ms$Begin.Date, 
+                      kdt_start_time=my_ms$KDT.Begin.Time, kdt_end_epoch=as.numeric(as.character(my_ms$KDT.Ending.Epoch)), kdt_end_date=my_ms$End.Date, kdt_end_time=my_ms$KDT.End.Time)
+    ps2 <- ps2[!is.na(kdt_start_epoch) & !is.na(kdt_end_epoch)]
+    ps2[,c("pasci_path", "vpd_file_name", "vpd_start_date", "vpd_start_time"):=pasci_file_info[grep(vpd_pattern, vpd_file_name, ignore.case=TRUE), which=FALSE],by='subject_code,vpd_pattern,kdt_start_epoch']
+    
+    ps2[,pk:=.I]
+    ps2[,pasci_file_dt:=as.pasciDateTime(vpd_start_date, vpd_start_time)]
+    ps2[,pasci_file_labtime:=as.labtime(pasci_file_dt)]
+    ps2[,kdt_start_labtime:=pasci_file_labtime+((kdt_start_epoch-1)/2/60)]
+    ps2[,kdt_end_labtime:=pasci_file_labtime+((kdt_start_epoch-1)/2/60)]
+    
+    ps2[,tau:=as.numeric(input$period_estimate)]
+    ps2[,cbt_comp_min:=as.numeric(input$comp_min_estimate)]
+    ps2[,fd_start_labtime:=as.numeric(input$fd_start_time)]
+    ps2[,fd_end_labtime:=as.numeric(input$fd_end_time)]
+    
+    # Set comp_min to comp_min - (24*5)
+    ps2[kdt_start_labtime < fd_start_labtime, `:=`(tau=24, cbt_comp_min=cbt_comp_min-(24*5))]
+    
+    # Set comp_min to comp_min + 24*20
+    ps2[kdt_start_labtime > fd_end_labtime, `:=`(tau=24, cbt_comp_min=cbt_comp_min+(24*20))]
+    
+    
+    
+    ps2
   })
   
   
@@ -198,9 +216,19 @@ server <- function(input, output, session) {
   output$downloadPS2 <- downloadHandler(
     filename = function(){ "example_ps2.ps2" },
     content = function(file) {
-      write.table(ps2_sheet(), file, col.names = FALSE, sep='', quote=FALSE, row.names = FALSE)
+      ps2_output <- ps2_sheet()[,list(vpd_file_name, kdt_start_epoch, paste(kdt_start_date, substr(kdt_start_time,1,5)), print(kdt_start_labtime), kdt_end_epoch, paste(kdt_end_date, substr(kdt_end_time,1,5)), print(kdt_end_labtime), tau*60, round(cbt_comp_min,2))]
+      
+      write.table(ps2_output, file, sep=',', col.names = FALSE, quote=FALSE, row.names = FALSE)
     }
   )
+  
+  output$downloadPS2_Full <- downloadHandler(
+    filename = function(){ "example_ps2_full.csv" },
+    content = function(file) {
+      write.table(ps1_sheet(), file, col.names = TRUE, sep=',', quote='"', row.names = FALSE)
+    }
+  )
+  
   
   
   output$master_sheet_preview <- renderDataTable(master_sheet())
