@@ -6,8 +6,8 @@ library(gdata)
 library(openxlsx)
 library(data.table)
 library(stringr)
-library(rsconnect)
-library(shinyapps)
+#library(rsconnect)
+#library(shinyapps)
 source("labtime.R")
 
 # By default, the file size limit is 5MB. It can be changed by
