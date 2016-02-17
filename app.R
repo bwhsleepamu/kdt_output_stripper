@@ -74,7 +74,7 @@ ui <- dashboardPage(
                           '.xls',
                           '.xlsx',
                           'text/csv',
-                          'text/comma-separated-values',
+                          'text/comma-separated-vralues',
                           'text/tab-separated-values',
                           'text/plain',
                           '.csv',
@@ -153,7 +153,9 @@ server <- function(input, output, session) {
   
   
   master_sheet <- eventReactive(input$upload_button, {
-    loadFile(input$master_sheet_path, input$skip_rows, input$header, input$sheet_number, input$sep, input$quote)
+    ms <- loadFile(input$master_sheet_path, input$skip_rows, input$header, input$sheet_number, input$sep, input$quote)
+    ms[,`:=`(KDT.Ending.Epoch=as.numeric(as.character(KDT.Ending.Epoch)),KDT.Beginning.Epoch=as.numeric(as.character(KDT.Beginning.Epoch)))]
+    ms   
   }) 
   
   ps1_sheet <- eventReactive({input$generate_ps1}, {
@@ -165,7 +167,8 @@ server <- function(input, output, session) {
     all_files <- list.files(input$pasci_dir_path, full.names = TRUE)
     ps1_list <- character()
     
-    for(file_pattern in master_sheet()[Subject==input$subject_code]$VPD.Filename) {
+
+    for(file_pattern in master_sheet()[Subject==input$subject_code & !is.na(KDT.Beginning.Epoch) & !is.na(KDT.Ending.Epoch)]$VPD.Filename) {
       ps1_list <- c(ps1_list, grep(file_pattern, all_files, value=TRUE, ignore.case = TRUE))
     }
     
@@ -187,7 +190,7 @@ server <- function(input, output, session) {
     ps2[,pasci_file_dt:=as.pasciDateTime(vpd_start_date, vpd_start_time)]
     ps2[,pasci_file_labtime:=as.labtime(pasci_file_dt)]
     ps2[,kdt_start_labtime:=pasci_file_labtime+((kdt_start_epoch-1)/2/60)]
-    ps2[,kdt_end_labtime:=pasci_file_labtime+((kdt_start_epoch-1)/2/60)]
+    ps2[,kdt_end_labtime:=pasci_file_labtime+((kdt_end_epoch-1)/2/60)]
     
     ps2[,tau:=as.numeric(input$period_estimate)]
     ps2[,cbt_comp_min:=as.numeric(input$comp_min_estimate)]
@@ -209,7 +212,11 @@ server <- function(input, output, session) {
   output$downloadPS1 <- downloadHandler(
     filename = function(){ "example_ps1.ps1" },
     content = function(file) {
-      write.table(ps1_sheet(), file, col.names = FALSE, sep='', quote=FALSE, row.names = FALSE)
+      ps1_output <- copy(ps1_sheet())
+      ps1_output[,file_path:=gsub("/X", "X:",file_path),by="file_path"]
+      cat("/*  VP PASCI FILE PARAMETERS\r\n", file=file)
+      
+      write.table(ps1_output, file, append = TRUE, col.names = FALSE, sep='', quote=FALSE, row.names = FALSE, eol="\r\n")
     }
   )
   
@@ -218,14 +225,15 @@ server <- function(input, output, session) {
     content = function(file) {
       ps2_output <- ps2_sheet()[,list(vpd_file_name, kdt_start_epoch, paste(kdt_start_date, substr(kdt_start_time,1,5)), print(kdt_start_labtime), kdt_end_epoch, paste(kdt_end_date, substr(kdt_end_time,1,5)), print(kdt_end_labtime), tau*60, round(cbt_comp_min,2))]
       
-      write.table(ps2_output, file, sep=',', col.names = FALSE, quote=FALSE, row.names = FALSE)
+      cat("/*  VP PASCI TIMING PARAMETERS,,,,,,,,\r\n", file=file)
+      write.table(ps2_output, file, sep=',', col.names = FALSE, quote=FALSE, row.names = FALSE, append=TRUE, eol="\r\n")
     }
   )
   
   output$downloadPS2_Full <- downloadHandler(
     filename = function(){ "example_ps2_full.csv" },
     content = function(file) {
-      write.table(ps1_sheet(), file, col.names = TRUE, sep=',', quote='"', row.names = FALSE)
+      write.table(ps1_sheet(), file, col.names = TRUE, sep=',', quote='"', row.names = FALSE, eol="\r\n")
     }
   )
   
