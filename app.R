@@ -178,7 +178,7 @@ server <- function(input, output, session) {
   ps2_sheet <- eventReactive(input$generate_ps2, {
   
     
-    my_ms <- copy(master_sheet()[Subject=="3227GX"])
+    my_ms <- copy(master_sheet()[Subject==input$subject_code])
     pasci_file_info <- ps1_sheet()[,readPasciInfo(file_path),by='file_path']
     
     ps2 <- data.table(subject_code=my_ms$Subject, vpd_pattern=my_ms$VPD.Filename, kdt_start_epoch=as.numeric(as.character(my_ms$KDT.Beginning.Epoch)), kdt_start_date=my_ms$Begin.Date, 
