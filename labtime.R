@@ -21,13 +21,17 @@ as.labtime.pasciDateTime <- function(x, ...) {
 }
 
 print.labtime <- function(x) {
+  print(toString(x))
+}
+
+toString.labtime <- function(x) {
   h <- floor(x)
   r <- (x - h)*60
   m <- floor(r)
   r <- (r - m)*60
   s <- round(r)
   
-  print(paste(h,str_pad(m,2,pad='0'),str_pad(s,2,pad='0'), sep=':'))
+  paste(h,str_pad(m,2,pad='0'),str_pad(s,2,pad='0'), sep=':')
 }
 
 as.realtime <- function(x, ...) {

@@ -6,8 +6,6 @@ library(gdata)
 library(openxlsx)
 library(data.table)
 library(stringr)
-#library(rsconnect)
-#library(shinyapps)
 source("labtime.R")
 
 # By default, the file size limit is 5MB. It can be changed by
@@ -16,8 +14,8 @@ options(shiny.maxRequestSize = 9*1024^2)
 
 
 readPasciInfo <- function(p_fp) {
-  fr <- scan(p_fp, what=character(), skip=1, nlines=3, sep='|');
-  list(vpd_file_name=fr[2], date=fr[7], time=substr(fr[12],1,8))
+  fr <- scan(p_fp, what=character(), skip=1, nlines=23, sep='|');
+  list(vpd_file_name=fr[2], channel=fr[4], date=fr[7], time=substr(fr[12],1,8), art_detection=paste(strsplit(fr[122], ' ')[[1]][1], "MAD", sep=""))
 }
 
 loadFile <- function(input_path, skip, header, sheet, seperator=',', quote='"') {
@@ -30,6 +28,7 @@ loadFile <- function(input_path, skip, header, sheet, seperator=',', quote='"') 
   
   else {
     print(inFile$type)
+    print(inFile$datapath)
     
     if(inFile$type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
       data_file <- read.xlsx(inFile$datapath, startRow=skip+1,colNames=header)
@@ -116,11 +115,14 @@ ui <- dashboardPage(
       ),
       tabItem(tabName="ps1", 
         fluidRow(
-          box(title="PS1 File Options", width=4, status='warning',
-            textInput('pasci_dir_path', "Pasci Directory Path",value="/X/People/Research Staff/Beckett_Scott/32-CSR_KDT-FFT_2013.09.16/3227GX/PASCI/C3"), shinyDirButton('pasci_dir', 'Browse', 'Please select a PASCI root folder.'),
-            actionButton("generate_ps1", "Generate PS1", icon=icon("gears"), class='pull-right')
-          ),
-          box(title="Preview", width=8,
+          box(title="PS1 File Options", width=12, status='warning',
+            textInput('pasci_dir_path', "Pasci Directory Path",value="/X/People/Research Staff/Beckett_Scott/32-CSR_KDT-FFT_2013.09.16/3227GX/PASCI/C3"),
+            actionButton("generate_ps1", "Generate PS1", icon=icon("gears"), class='btn-block')
+          )
+        ),
+        fluidRow(
+          box(title="Preview", width=12,
+            uiOutput("ps1_range"),
             downloadButton("downloadPS1", "Download PS1", class='btn-block'),
             br(),
             dataTableOutput("ps1_preview")
@@ -130,8 +132,13 @@ ui <- dashboardPage(
       ),
       tabItem(tabName='ps2',
         fluidRow(
+          box(title='PS2 File Options', width=12,
+            actionButton("generate_ps2", "Generate PS2", class='btn-block')
+          )
+        ),
+        fluidRow(
           box(title="Preview", width=12,
-            actionButton("generate_ps2", "Generate PS2", class='btn-block'),
+            uiOutput("ps2_range"),
             downloadButton("downloadPS2", "Download PS2", class='btn-block'),
             downloadButton("downloadPS2_Full", "Download Full Dataset", class='btn-block'),
             hr(),
@@ -158,33 +165,84 @@ server <- function(input, output, session) {
     ms   
   }) 
   
+  group_list <- eventReactive(master_sheet(), {
+    gs <- master_sheet()[Subject==input$subject_code,.N,by='VPD.Filename']
+    gs[,CS:=cumsum(N)]
+    gs[,group:=CS %/% 250]
+    gs <- gs[,list(name=paste(head(VPD.Filename,n=1), tail(VPD.Filename,n=1), sep='-'), value=paste(VPD.Filename,collapse=',')),by='group']
+    
+    return_list <- gs$value
+    names(return_list) <- gs$name
+    
+    return_list
+  })
+  
   ps1_sheet <- eventReactive({input$generate_ps1}, {
-    print("HELLO")
     #print(master_sheet())
     # parseDirPath(volumes, input$directory)
     #master_sheet()[Subject == input$subject_code, {print(as.character(VPD.Filename))},by='pk']
     
     all_files <- list.files(input$pasci_dir_path, full.names = TRUE)
-    ps1_list <- character()
+    ms <- copy(master_sheet()[Subject==input$subject_code & !is.na(KDT.Beginning.Epoch) & !is.na(KDT.Ending.Epoch)])
+    ms[,list(file_path=grep(VPD.Filename, all_files, value=TRUE, ignore.case = TRUE)),by='pk,VPD.Filename']
     
-
-    for(file_pattern in master_sheet()[Subject==input$subject_code & !is.na(KDT.Beginning.Epoch) & !is.na(KDT.Ending.Epoch)]$VPD.Filename) {
-      ps1_list <- c(ps1_list, grep(file_pattern, all_files, value=TRUE, ignore.case = TRUE))
-    }
     
-    data.table(file_path = ps1_list)
+    # ps1_list <- character()
+    # 
+    # 
+    # for(file_pattern in master_sheet()[Subject==input$subject_code & !is.na(KDT.Beginning.Epoch) & !is.na(KDT.Ending.Epoch)]$VPD.Filename) {
+    #   ps1_list <- c(ps1_list, grep(file_pattern, all_files, value=TRUE, ignore.case = TRUE))
+    # }
+    # 
+    # data.table(file_path = ps1_list)
   })
   
+  pasci_file_info <- eventReactive(ps1_sheet(), {
+    ps1_sheet()[,readPasciInfo(file_path),by='file_path']
+  })
+  
+  ps1_file_name <- eventReactive(input$ps1_range_select, {
+    p_range <- strsplit(input$ps1_range_select, ",")[[1]]
+    p_range <- paste(head(p_range, n=1), tail(p_range, n=1), sep='-')
+    
+    pfi <- pasci_file_info()[1]
+    sc <- input$subject_code
+    
+    
+    
+    if(is.null(pfi) || is.null(sc))
+      return()
+    
+    paste(sc,pfi$art_detection, p_range, "Ch", pfi$channel, "PS1.PS1", sep="_")
+    
+  })
+
+  ps2_file_name <- eventReactive(input$ps2_range_select, {
+    p_range <- strsplit(input$ps2_range_select, ",")[[1]]
+    p_range <- paste(head(p_range, n=1), tail(p_range, n=1), sep='-')
+    
+    pfi <- pasci_file_info()[1]
+    sc <- input$subject_code
+    
+    
+    
+    if(is.null(pfi) || is.null(sc))
+      return()
+    
+    paste(sc,pfi$art_detection, p_range, "Ch", pfi$channel, "PS2.PS2", sep="_")
+    
+  })
+  
+    
   ps2_sheet <- eventReactive(input$generate_ps2, {
   
     
     my_ms <- copy(master_sheet()[Subject==input$subject_code])
-    pasci_file_info <- ps1_sheet()[,readPasciInfo(file_path),by='file_path']
     
     ps2 <- data.table(subject_code=my_ms$Subject, vpd_pattern=my_ms$VPD.Filename, kdt_start_epoch=as.numeric(as.character(my_ms$KDT.Beginning.Epoch)), kdt_start_date=my_ms$Begin.Date, 
                       kdt_start_time=my_ms$KDT.Begin.Time, kdt_end_epoch=as.numeric(as.character(my_ms$KDT.Ending.Epoch)), kdt_end_date=my_ms$End.Date, kdt_end_time=my_ms$KDT.End.Time)
     ps2 <- ps2[!is.na(kdt_start_epoch) & !is.na(kdt_end_epoch)]
-    ps2[,c("pasci_path", "vpd_file_name", "vpd_start_date", "vpd_start_time"):=pasci_file_info[grep(vpd_pattern, vpd_file_name, ignore.case=TRUE), which=FALSE],by='subject_code,vpd_pattern,kdt_start_epoch']
+    ps2[,c("pasci_path", "vpd_file_name", "channel", "vpd_start_date", "vpd_start_time", "manual_artifact_detection"):=pasci_file_info()[grep(vpd_pattern, vpd_file_name, ignore.case=TRUE), which=FALSE],by='subject_code,vpd_pattern,kdt_start_epoch']
     
     ps2[,pk:=.I]
     ps2[,pasci_file_dt:=as.pasciDateTime(vpd_start_date, vpd_start_time)]
@@ -210,21 +268,22 @@ server <- function(input, output, session) {
   
   
   output$downloadPS1 <- downloadHandler(
-    filename = function(){ "example_ps1.ps1" },
+    filename = function(){ ps1_file_name() },
     content = function(file) {
       ps1_output <- copy(ps1_sheet())
+      ps1_output <- ps1_output[VPD.Filename %in% strsplit(input$ps1_range_select, split=',')[[1]]]
       ps1_output[,file_path:=gsub("/X", "X:",file_path),by="file_path"]
       cat("/*  VP PASCI FILE PARAMETERS\r\n", file=file)
-      
-      write.table(ps1_output, file, append = TRUE, col.names = FALSE, sep='', quote=FALSE, row.names = FALSE, eol="\r\n")
+
+      write.table(ps1_output$file_path, file, append = TRUE, col.names = FALSE, sep='', quote=FALSE, row.names = FALSE, eol="\r\n")
     }
   )
   
   output$downloadPS2 <- downloadHandler(
-    filename = function(){ "example_ps2.ps2" },
+    filename = function(){ ps2_file_name() },
     content = function(file) {
-      ps2_output <- ps2_sheet()[,list(vpd_file_name, kdt_start_epoch, paste(kdt_start_date, substr(kdt_start_time,1,5)), print(kdt_start_labtime), kdt_end_epoch, paste(kdt_end_date, substr(kdt_end_time,1,5)), print(kdt_end_labtime), tau*60, round(cbt_comp_min,2))]
-      
+      ps2_output <- copy(ps2_sheet()[vpd_pattern %in% strsplit(input$ps2_range_select, split=',')[[1]]])
+      ps2_output <- ps2_output[,list(vpd_file_name, kdt_start_epoch, paste(kdt_start_date, substr(kdt_start_time,1,5)),toString(kdt_start_labtime), kdt_end_epoch, paste(kdt_end_date, substr(kdt_end_time,1,5)), toString(kdt_end_labtime), tau*60, round(cbt_comp_min,2))]
       cat("/*  VP PASCI TIMING PARAMETERS,,,,,,,,\r\n", file=file)
       write.table(ps2_output, file, sep=',', col.names = FALSE, quote=FALSE, row.names = FALSE, append=TRUE, eol="\r\n")
     }
@@ -233,9 +292,25 @@ server <- function(input, output, session) {
   output$downloadPS2_Full <- downloadHandler(
     filename = function(){ "example_ps2_full.csv" },
     content = function(file) {
-      write.table(ps1_sheet(), file, col.names = TRUE, sep=',', quote='"', row.names = FALSE, eol="\r\n")
+      write.table(ps1_sheet(), file, col.names = TRUE, sep=',', row.names = FALSE, eol="\r\n")
     }
   )
+  
+  output$ps1_range <- renderUI({
+    if(is.null(group_list()) || is.null(input$subject_code))
+      return()
+    
+    selectInput("ps1_range_select", "Download Range", group_list())
+  })
+  
+  output$ps2_range <- renderUI({
+    if(is.null(group_list()) || is.null(input$subject_code))
+      return()
+    
+    selectInput("ps2_range_select", "Download Range", group_list())
+    
+  })
+  
   
   
   
