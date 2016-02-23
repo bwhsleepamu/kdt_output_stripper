@@ -14,8 +14,8 @@ options(shiny.maxRequestSize = 9*1024^2)
 
 
 readPasciInfo <- function(p_fp) {
-  fr <- scan(p_fp, what=character(), skip=1, nlines=3, sep='|');
-  list(vpd_file_name=fr[2], date=fr[7], time=substr(fr[12],1,8))
+  fr <- scan(p_fp, what=character(), skip=1, nlines=23, sep='|');
+  list(vpd_file_name=fr[2], channel=fr[4], date=fr[7], time=substr(fr[12],1,8), art_detection=paste(strsplit(fr[122], ' ')[[1]][1], "MAD", sep=""))
 }
 
 loadFile <- function(input_path, skip, header, sheet, seperator=',', quote='"') {
@@ -116,7 +116,7 @@ ui <- dashboardPage(
       tabItem(tabName="ps1", 
         fluidRow(
           box(title="PS1 File Options", width=12, status='warning',
-            textInput('pasci_dir_path', "Pasci Directory Path",value="X:/People/Research Staff/Beckett_Scott/32-CSR_KDT-FFT_2013.09.16/3227GX/PASCI/C3"),
+            textInput('pasci_dir_path', "Pasci Directory Path",value="/X/People/Research Staff/Beckett_Scott/32-CSR_KDT-FFT_2013.09.16/3227GX/PASCI/C3"),
             actionButton("generate_ps1", "Generate PS1", icon=icon("gears"), class='btn-block')
           )
         ),
@@ -197,16 +197,52 @@ server <- function(input, output, session) {
     # data.table(file_path = ps1_list)
   })
   
+  pasci_file_info <- eventReactive(ps1_sheet(), {
+    ps1_sheet()[,readPasciInfo(file_path),by='file_path']
+  })
+  
+  ps1_file_name <- eventReactive(input$ps1_range_select, {
+    p_range <- strsplit(input$ps1_range_select, ",")[[1]]
+    p_range <- paste(head(p_range, n=1), tail(p_range, n=1), sep='-')
+    
+    pfi <- pasci_file_info()[1]
+    sc <- input$subject_code
+    
+    
+    
+    if(is.null(pfi) || is.null(sc))
+      return()
+    
+    paste(sc,pfi$art_detection, p_range, "Ch", pfi$channel, "PS1.PS1", sep="_")
+    
+  })
+
+  ps2_file_name <- eventReactive(input$ps2_range_select, {
+    p_range <- strsplit(input$ps2_range_select, ",")[[1]]
+    p_range <- paste(head(p_range, n=1), tail(p_range, n=1), sep='-')
+    
+    pfi <- pasci_file_info()[1]
+    sc <- input$subject_code
+    
+    
+    
+    if(is.null(pfi) || is.null(sc))
+      return()
+    
+    paste(sc,pfi$art_detection, p_range, "Ch", pfi$channel, "PS2.PS2", sep="_")
+    
+  })
+  
+    
   ps2_sheet <- eventReactive(input$generate_ps2, {
   
     
     my_ms <- copy(master_sheet()[Subject==input$subject_code])
-    pasci_file_info <- ps1_sheet()[,readPasciInfo(file_path),by='file_path']
     
     ps2 <- data.table(subject_code=my_ms$Subject, vpd_pattern=my_ms$VPD.Filename, kdt_start_epoch=as.numeric(as.character(my_ms$KDT.Beginning.Epoch)), kdt_start_date=my_ms$Begin.Date, 
                       kdt_start_time=my_ms$KDT.Begin.Time, kdt_end_epoch=as.numeric(as.character(my_ms$KDT.Ending.Epoch)), kdt_end_date=my_ms$End.Date, kdt_end_time=my_ms$KDT.End.Time)
     ps2 <- ps2[!is.na(kdt_start_epoch) & !is.na(kdt_end_epoch)]
-    ps2[,c("pasci_path", "vpd_file_name", "vpd_start_date", "vpd_start_time"):=pasci_file_info[grep(vpd_pattern, vpd_file_name, ignore.case=TRUE), which=FALSE],by='subject_code,vpd_pattern,kdt_start_epoch']
+    ps2[,c("pasci_path", "vpd_file_name", "channel", "vpd_start_date", "vpd_start_time", "manual_artifact_detection"):=pasci_file_info()[grep(vpd_pattern, vpd_file_name, ignore.case=TRUE), which=FALSE],by='subject_code,vpd_pattern,kdt_start_epoch']
     
     ps2[,pk:=.I]
     ps2[,pasci_file_dt:=as.pasciDateTime(vpd_start_date, vpd_start_time)]
@@ -232,7 +268,7 @@ server <- function(input, output, session) {
   
   
   output$downloadPS1 <- downloadHandler(
-    filename = function(){ "example_ps1.ps1" },
+    filename = function(){ ps1_file_name() },
     content = function(file) {
       ps1_output <- copy(ps1_sheet())
       ps1_output <- ps1_output[VPD.Filename %in% strsplit(input$ps1_range_select, split=',')[[1]]]
@@ -244,7 +280,7 @@ server <- function(input, output, session) {
   )
   
   output$downloadPS2 <- downloadHandler(
-    filename = function(){ "example_ps2.ps2" },
+    filename = function(){ ps2_file_name() },
     content = function(file) {
       ps2_output <- copy(ps2_sheet()[vpd_pattern %in% strsplit(input$ps2_range_select, split=',')[[1]]])
       ps2_output <- ps2_output[,list(vpd_file_name, kdt_start_epoch, paste(kdt_start_date, substr(kdt_start_time,1,5)),kdt_start_labtime, kdt_end_epoch, paste(kdt_end_date, substr(kdt_end_time,1,5)), kdt_end_labtime, tau*60, round(cbt_comp_min,2))]
