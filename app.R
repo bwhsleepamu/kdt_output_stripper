@@ -283,7 +283,7 @@ server <- function(input, output, session) {
     filename = function(){ ps2_file_name() },
     content = function(file) {
       ps2_output <- copy(ps2_sheet()[vpd_pattern %in% strsplit(input$ps2_range_select, split=',')[[1]]])
-      ps2_output <- ps2_output[,list(vpd_file_name, kdt_start_epoch, paste(kdt_start_date, substr(kdt_start_time,1,5)),kdt_start_labtime, kdt_end_epoch, paste(kdt_end_date, substr(kdt_end_time,1,5)), kdt_end_labtime, tau*60, round(cbt_comp_min,2))]
+      ps2_output <- ps2_output[,list(vpd_file_name, kdt_start_epoch, paste(kdt_start_date, substr(kdt_start_time,1,5)),toString(kdt_start_labtime), kdt_end_epoch, paste(kdt_end_date, substr(kdt_end_time,1,5)), toString(kdt_end_labtime), tau*60, round(cbt_comp_min,2))]
       cat("/*  VP PASCI TIMING PARAMETERS,,,,,,,,\r\n", file=file)
       write.table(ps2_output, file, sep=',', col.names = FALSE, quote=FALSE, row.names = FALSE, append=TRUE, eol="\r\n")
     }
